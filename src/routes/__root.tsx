@@ -5,6 +5,7 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
+import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { useSprintStore } from "@/lib/store";
@@ -58,6 +59,7 @@ function RootDocument() {
         <PreviewHostBridge />
         <AuthProvider>
           <Outlet />
+          <Toaster theme="dark" position="bottom-right" />
         </AuthProvider>
         <Scripts />
       </body>

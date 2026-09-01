@@ -1,30 +1,34 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import { AGENT_MAP, BOARD_AGENTS, type AgentId } from "@/lib/agents";
 
-type IncomingMessage = {
-  role: "user" | "agent";
-  content: string;
-  agentId?: AgentId;
-};
+const MessageSchema = z.object({
+  role: z.enum(["user", "agent"]),
+  content: z.string().max(20_000),
+  agentId: z.string().max(40).optional(),
+});
 
-type IncomingArtifact = {
-  title: string;
-  kind: string;
-  content: string;
-};
+const ArtifactSchema = z.object({
+  title: z.string().max(200),
+  kind: z.string().max(50),
+  content: z.string().max(20_000),
+});
 
-type Body = {
-  agentId?: AgentId;
-  mode?: "chat" | "board";
-  idea?: string;
-  messages?: IncomingMessage[];
-  artifacts?: IncomingArtifact[];
-};
+const BodySchema = z.object({
+  agentId: z.string().max(40).optional(),
+  mode: z.enum(["chat", "board"]).optional(),
+  idea: z.string().max(8_000).optional(),
+  messages: z.array(MessageSchema).max(60).optional(),
+  artifacts: z.array(ArtifactSchema).max(10).optional(),
+});
 
 const MAX_USER = 8000;
 const MAX_HISTORY = 10;
 const MAX_ARTIFACTS = 4;
 const MAX_ARTIFACT_CHARS = 1200;
+
+/** Model id is deploy-configurable; default matches the original hardcoded value. */
+const XAI_MODEL = process.env.XAI_MODEL?.trim() || "grok-4.5";
 
 function sse(data: unknown) {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -32,6 +36,44 @@ function sse(data: unknown) {
 
 function clip(s: string, n: number) {
   return s.length > n ? `${s.slice(0, n)}\n…` : s;
+}
+
+/**
+ * Fetch-metadata isolation: only this app's own client (same-origin) or a
+ * non-browser caller (SSR, server-to-server — no Sec-Fetch-Site header) may
+ * spend the app owner's model quota. Scripted cross-site and same-site
+ * sibling-tenant requests are rejected. Same semantics as
+ * src/lib/auth/isolation.server.ts, applied to the route's own request object.
+ */
+function isScriptedCrossSite(request: Request): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (!site || site === "same-origin" || site === "none") return false;
+  return true;
+}
+
+/**
+ * Best-effort per-client token bucket. Each serverless instance keeps its own
+ * map, so this throttles casual abuse rather than a motivated attacker — pair
+ * it with spend limits on the xAI side for real protection.
+ */
+const RATE_LIMIT = 20;
+const RATE_WINDOW_MS = 60_000;
+const buckets = new Map<string, { count: number; resetAt: number }>();
+
+function isRateLimited(key: string): boolean {
+  const now = Date.now();
+  if (buckets.size > 5_000) {
+    for (const [k, b] of buckets) {
+      if (b.resetAt <= now) buckets.delete(k);
+    }
+  }
+  const bucket = buckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    buckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > RATE_LIMIT;
 }
 
 function boardSystem() {
@@ -70,6 +112,24 @@ export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        if (isScriptedCrossSite(request)) {
+          return Response.json(
+            { error: "Forbidden: cross-site request blocked" },
+            { status: 403 },
+          );
+        }
+
+        const clientKey =
+          request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+          request.headers.get("x-real-ip")?.trim() ||
+          "unknown";
+        if (isRateLimited(clientKey)) {
+          return Response.json(
+            { error: "Rate limit exceeded — wait a minute and try again." },
+            { status: 429 },
+          );
+        }
+
         const apiKey = process.env.XAI_API_KEY;
         if (!apiKey) {
           return Response.json(
@@ -78,17 +138,30 @@ export const Route = createFileRoute("/api/chat")({
           );
         }
 
-        let body: Body;
+        let rawBody: unknown;
         try {
-          body = (await request.json()) as Body;
+          rawBody = await request.json();
         } catch {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
+        const parsedBody = BodySchema.safeParse(rawBody);
+        if (!parsedBody.success) {
+          return Response.json(
+            {
+              error: `Invalid request body: ${parsedBody.error.issues[0]?.message ?? "schema mismatch"}`,
+            },
+            { status: 400 },
+          );
+        }
+        const body = parsedBody.data;
 
         const mode = body.mode === "board" ? "board" : "chat";
-        const agentId = (body.agentId && body.agentId in AGENT_MAP
-          ? body.agentId
-          : "conductor") as AgentId;
+        // Own-key check: `in AGENT_MAP` would match prototype properties like
+        // "constructor" and let a bogus agent id flow into the prompt.
+        const agentId: AgentId =
+          body.agentId && Object.hasOwn(AGENT_MAP, body.agentId)
+            ? (body.agentId as AgentId)
+            : "conductor";
         const agent = AGENT_MAP[agentId];
         const idea = clip((body.idea ?? "").trim(), 4000);
         const history = (body.messages ?? []).slice(-MAX_HISTORY);
@@ -141,7 +214,10 @@ You are ${agent.name} (${agent.slash}). Stay in role.`;
             if (m.role === "user") {
               messages.push({ role: "user", content: m.content });
             } else {
-              const who = m.agentId ? AGENT_MAP[m.agentId]?.name : "Agent";
+              const who =
+                m.agentId && Object.hasOwn(AGENT_MAP, m.agentId)
+                  ? AGENT_MAP[m.agentId as AgentId].name
+                  : "Agent";
               messages.push({
                 role: "assistant",
                 content: m.agentId && m.agentId !== agentId ? `[${who}]\n${m.content}` : m.content,
@@ -162,8 +238,11 @@ You are ${agent.name} (${agent.slash}). Stay in role.`;
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
           },
+          // Tie the upstream call to the client connection: when the builder
+          // navigates away or presses stop, we stop paying for tokens.
+          signal: request.signal,
           body: JSON.stringify({
-            model: "grok-4.5",
+            model: XAI_MODEL,
             stream: true,
             temperature: 0.55,
             max_tokens: mode === "board" ? 2400 : 1400,
@@ -185,6 +264,10 @@ You are ${agent.name} (${agent.slash}). Stay in role.`;
             const reader = xai.body!.getReader();
             const decoder = new TextDecoder();
             let buf = "";
+            const onClientAbort = () => {
+              void reader.cancel().catch(() => {});
+            };
+            request.signal.addEventListener("abort", onClientAbort);
             try {
               while (true) {
                 const { done, value } = await reader.read();
@@ -218,6 +301,8 @@ You are ${agent.name} (${agent.slash}). Stay in role.`;
               } catch {
                 /* already closed */
               }
+            } finally {
+              request.signal.removeEventListener("abort", onClientAbort);
             }
           },
         });
@@ -233,4 +318,3 @@ You are ${agent.name} (${agent.slash}). Stay in role.`;
     },
   },
 });
-

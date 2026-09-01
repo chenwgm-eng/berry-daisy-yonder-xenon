@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { toast } from "sonner";
 import type { AgentId, StageId } from "./agents";
-import { AGENT_MAP } from "./agents";
+import { AGENT_MAP, STAGES } from "./agents";
 import type { Artifact, Message, Sprint } from "./types";
 import { uid } from "./utils";
 
@@ -15,6 +16,7 @@ type State = {
   patchSprint: (id: string, patch: Partial<Sprint>) => void;
   addMessage: (sprintId: string, msg: Omit<Message, "id" | "createdAt"> & { id?: string }) => Message;
   updateMessage: (sprintId: string, messageId: string, content: string) => void;
+  removeMessage: (sprintId: string, messageId: string) => void;
   addArtifacts: (
     sprintId: string,
     items: Omit<Artifact, "id" | "createdAt">[],
@@ -24,10 +26,82 @@ type State = {
   markKickoff: (sprintId: string) => void;
 };
 
+const STAGE_IDS = new Set<StageId>(STAGES.map((s) => s.id));
+
 function titleFromIdea(idea: string) {
   const line = idea.trim().split(/\n/)[0] ?? "Untitled sprint";
   return line.length > 48 ? `${line.slice(0, 46)}…` : line || "Untitled sprint";
 }
+
+/** Own-key guard: `in` matches prototype props such as "constructor". */
+function isAgentId(id: unknown): id is AgentId {
+  return typeof id === "string" && Object.hasOwn(AGENT_MAP, id);
+}
+
+function isStageId(id: unknown): id is StageId {
+  return typeof id === "string" && STAGE_IDS.has(id as StageId);
+}
+
+/**
+ * Repair persisted state from older/broken versions (e.g. a garbage
+ * activeAgentId written before the whitelist guard existed, which would
+ * otherwise crash the war-room header). Runs at rehydrate because the persist
+ * options below declare version: 1.
+ */
+function sanitizePersisted(input: unknown): { sprints: Sprint[] } {
+  if (!input || typeof input !== "object") return { sprints: [] };
+  const raw = (input as { sprints?: unknown }).sprints;
+  if (!Array.isArray(raw)) return { sprints: [] };
+  const sprints: Sprint[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const sp = item as Partial<Sprint>;
+    if (typeof sp.id !== "string" || typeof sp.idea !== "string") continue;
+    sprints.push({
+      id: sp.id,
+      title: typeof sp.title === "string" && sp.title ? sp.title : titleFromIdea(sp.idea),
+      idea: sp.idea,
+      createdAt: typeof sp.createdAt === "number" ? sp.createdAt : Date.now(),
+      updatedAt: typeof sp.updatedAt === "number" ? sp.updatedAt : Date.now(),
+      stage: isStageId(sp.stage) ? sp.stage : "think",
+      activeAgentId: isAgentId(sp.activeAgentId) ? sp.activeAgentId : "conductor",
+      messages: Array.isArray(sp.messages) ? sp.messages : [],
+      artifacts: Array.isArray(sp.artifacts) ? sp.artifacts : [],
+      kickoffDone: sp.kickoffDone === true,
+    });
+  }
+  return { sprints };
+}
+
+/**
+ * localStorage with a quota guard — a full store must surface as a toast, not
+ * as silent data loss on every subsequent write.
+ */
+const guardedStorage = {
+  getItem: (name: string): string | null => {
+    try {
+      return localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name: string, value: string): void => {
+    try {
+      localStorage.setItem(name, value);
+    } catch {
+      if (typeof window !== "undefined") {
+        toast.error("Local storage is full — delete an old sprint to keep saving.");
+      }
+    }
+  },
+  removeItem: (name: string): void => {
+    try {
+      localStorage.removeItem(name);
+    } catch {
+      /* ignore */
+    }
+  },
+};
 
 export const useSprintStore = create<State>()(
   persist(
@@ -92,6 +166,18 @@ export const useSprintStore = create<State>()(
               : s,
           ),
         }),
+      removeMessage: (sprintId, messageId) =>
+        set({
+          sprints: get().sprints.map((s) =>
+            s.id === sprintId
+              ? {
+                  ...s,
+                  messages: s.messages.filter((m) => m.id !== messageId),
+                  updatedAt: Date.now(),
+                }
+              : s,
+          ),
+        }),
       addArtifacts: (sprintId, items) => {
         const now = Date.now();
         const arts: Artifact[] = items.map((it) => ({
@@ -108,25 +194,28 @@ export const useSprintStore = create<State>()(
         });
       },
       setActiveAgent: (sprintId, agentId) => {
-        const stage = AGENT_MAP[agentId]?.stage;
+        // Whitelist guard — a garbage id would be persisted and later crash
+        // the war-room header (AGENT_MAP[id] undefined).
+        if (!isAgentId(agentId)) return;
+        // Note: deliberately does NOT move the pipeline stage. Clicking around
+        // the roster is browsing, not progress.
         set({
           sprints: get().sprints.map((s) =>
-            s.id === sprintId
-              ? {
-                  ...s,
-                  activeAgentId: agentId,
-                  stage: stage ?? s.stage,
-                  updatedAt: Date.now(),
-                }
-              : s,
+            s.id === sprintId ? { ...s, activeAgentId: agentId, updatedAt: Date.now() } : s,
           ),
         });
       },
+      // Stages only move forward, and only when work is actually produced
+      // (the war room calls this after artifacts land / the board completes).
       setStage: (sprintId, stage) =>
         set({
-          sprints: get().sprints.map((s) =>
-            s.id === sprintId ? { ...s, stage, updatedAt: Date.now() } : s,
-          ),
+          sprints: get().sprints.map((s) => {
+            if (s.id !== sprintId) return s;
+            const current = STAGES.findIndex((x) => x.id === s.stage);
+            const next = STAGES.findIndex((x) => x.id === stage);
+            if (next <= current) return s;
+            return { ...s, stage, updatedAt: Date.now() };
+          }),
         }),
       markKickoff: (sprintId) =>
         set({
@@ -137,8 +226,11 @@ export const useSprintStore = create<State>()(
     }),
     {
       name: "gstack-sprints-v1",
+      version: 1,
       skipHydration: true,
       partialize: (s) => ({ sprints: s.sprints }),
+      storage: createJSONStorage(() => guardedStorage),
+      migrate: (persisted) => sanitizePersisted(persisted),
     },
   ),
 );

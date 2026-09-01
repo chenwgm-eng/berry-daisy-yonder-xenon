@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowUp, Layers, Users, X } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  Copy,
+  Download,
+  Layers,
+  RotateCcw,
+  Square,
+  Users,
+  X,
+} from "lucide-react";
 import {
   AGENTS,
   AGENT_MAP,
@@ -9,7 +19,11 @@ import {
   type AgentId,
 } from "@/lib/agents";
 import { streamAgent } from "@/lib/chat-client";
-import { parseAgentOutput, parseBoardSections } from "@/lib/parse-output";
+import {
+  parseAgentOutput,
+  parseBoardSections,
+  stripBoardMarkers,
+} from "@/lib/parse-output";
 import { useSprintStore } from "@/lib/store";
 import type { Artifact, Sprint } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
@@ -28,15 +42,21 @@ export function WarRoom({ sprintId }: Props) {
   const [liveText, setLiveText] = useState("");
   const [liveId, setLiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [kickoffFailed, setKickoffFailed] = useState(false);
   const [panel, setPanel] = useState<"none" | "team" | "docs">("none");
   const [openDoc, setOpenDoc] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const kickoffLock = useRef(false);
+  // Keyed by sprintId — a plain boolean lock survives a sprint switch and
+  // would suppress the next sprint's kickoff.
+  const kickoffFor = useRef<string | null>(null);
   const busyRef = useRef(false);
+  const liveTextRef = useRef("");
 
   const addMessage = useSprintStore((s) => s.addMessage);
   const updateMessage = useSprintStore((s) => s.updateMessage);
+  const removeMessage = useSprintStore((s) => s.removeMessage);
   const addArtifacts = useSprintStore((s) => s.addArtifacts);
   const setActiveAgent = useSprintStore((s) => s.setActiveAgent);
   const markKickoff = useSprintStore((s) => s.markKickoff);
@@ -58,13 +78,16 @@ export function WarRoom({ sprintId }: Props) {
       userText: string;
       mode?: "chat" | "board";
       recordUser?: boolean;
+      kickoff?: boolean;
     }) => {
       const current = useSprintStore.getState().getSprint(sprintId);
       if (!current || busyRef.current) return;
       busyRef.current = true;
       setBusy(true);
       setError(null);
+      if (opts.kickoff) setKickoffFailed(false);
       setLiveText("");
+      liveTextRef.current = "";
       setActiveAgent(sprintId, opts.agentId);
 
       if (opts.recordUser !== false) {
@@ -81,8 +104,11 @@ export function WarRoom({ sprintId }: Props) {
       const snap = useSprintStore.getState().getSprint(sprintId)!;
       const ac = new AbortController();
       abortRef.current = ac;
+      // Upload only what the server actually reads (it slices to the last 10)
+      // — long sprints must not ship their whole history on every message.
       const history = snap.messages
-        .filter((m) => m.id !== placeholder.id)
+        .filter((m) => m.id !== placeholder.id && m.content.trim())
+        .slice(-10)
         .map((m) => ({
           role: m.role,
           content: m.content,
@@ -99,14 +125,15 @@ export function WarRoom({ sprintId }: Props) {
             mode: opts.mode ?? "chat",
             idea: snap.idea,
             messages: history,
-            artifacts: snap.artifacts.map((a) => ({
+            artifacts: snap.artifacts.slice(0, 4).map((a) => ({
               title: a.title,
               kind: a.kind,
               content: a.content,
             })),
           },
           (chunk) => {
-            setLiveText((prev) => prev + chunk);
+            liveTextRef.current += chunk;
+            setLiveText(liveTextRef.current);
           },
           ac.signal,
         );
@@ -142,8 +169,13 @@ export function WarRoom({ sprintId }: Props) {
             if (arts.length) addArtifacts(sprintId, arts);
             setStage(sprintId, "plan");
           } else {
+            // Fallback: never show raw :::agent: protocol markers to the user.
             const parsed = parseAgentOutput(full);
-            updateMessage(sprintId, placeholder.id, parsed.display || full);
+            updateMessage(
+              sprintId,
+              placeholder.id,
+              stripBoardMarkers(parsed.display) || full,
+            );
           }
         } else {
           const parsed = parseAgentOutput(full);
@@ -153,15 +185,28 @@ export function WarRoom({ sprintId }: Props) {
               sprintId,
               parsed.artifacts.map((a) => ({ ...a, agentId: opts.agentId })),
             );
+            // A produced deliverable advances the pipeline (monotonic — store).
+            setStage(sprintId, AGENT_MAP[opts.agentId].stage);
           }
           if (parsed.handoff && parsed.handoff !== opts.agentId) {
             setActiveAgent(sprintId, parsed.handoff);
           }
         }
       } catch (err) {
-        if ((err as { name?: string }).name === "AbortError") return;
+        if ((err as { name?: string }).name === "AbortError") {
+          // Builder pressed stop: keep partial output if any, otherwise remove
+          // the empty placeholder so no ghost bubble is left behind.
+          const partial = liveTextRef.current.trimEnd();
+          if (partial) {
+            updateMessage(sprintId, placeholder.id, `${partial}\n\n*stopped*`);
+          } else {
+            removeMessage(sprintId, placeholder.id);
+          }
+          return;
+        }
         const message = err instanceof Error ? err.message : "The floor went quiet.";
         setError(message);
+        if (opts.kickoff) setKickoffFailed(true);
         updateMessage(
           sprintId,
           placeholder.id,
@@ -172,12 +217,14 @@ export function WarRoom({ sprintId }: Props) {
         setBusy(false);
         setLiveId(null);
         setLiveText("");
+        liveTextRef.current = "";
         abortRef.current = null;
       }
     },
     [
       addArtifacts,
       addMessage,
+      removeMessage,
       setActiveAgent,
       setStage,
       sprintId,
@@ -186,13 +233,15 @@ export function WarRoom({ sprintId }: Props) {
   );
 
   useEffect(() => {
-    if (!hydrated || !sprint || sprint.kickoffDone || kickoffLock.current) return;
-    kickoffLock.current = true;
+    if (!hydrated || !sprint || sprint.kickoffDone) return;
+    if (kickoffFor.current === sprintId) return;
+    kickoffFor.current = sprintId;
     markKickoff(sprintId);
     void run({
       agentId: "conductor",
       userText: `New sprint. Briefing:\n\n${sprint.idea}`,
       recordUser: false,
+      kickoff: true,
     });
   }, [hydrated, markKickoff, run, sprint, sprintId]);
 
@@ -201,9 +250,15 @@ export function WarRoom({ sprintId }: Props) {
     if (!text || busy || !sprint) return;
     setDraft("");
     const slashed = agentBySlash(text);
-    const agentId = slashed?.id ?? sprint.activeAgentId;
-    const cleaned = slashed ? text.replace(/^\/[a-z-]+\s*/i, "").trim() || text : text;
-    void run({ agentId, userText: cleaned });
+    if (slashed) {
+      setActiveAgent(sprintId, slashed.id);
+      const cleaned = text.replace(/^\/[a-z-]+\s*/i, "").trim();
+      // A bare "/ceo" switches who you're talking to without sending a message.
+      if (!cleaned) return;
+      void run({ agentId: slashed.id, userText: cleaned });
+      return;
+    }
+    void run({ agentId: sprint.activeAgentId, userText: text });
   }
 
   if (!hydrated) {
@@ -225,8 +280,37 @@ export function WarRoom({ sprintId }: Props) {
     );
   }
 
-  const active = AGENT_MAP[sprint.activeAgentId];
+  // Runtime guard for state persisted before the agentId whitelist existed.
+  const active = AGENT_MAP[sprint.activeAgentId] ?? AGENT_MAP.conductor;
   const doc = sprint.artifacts.find((a) => a.id === openDoc) ?? sprint.artifacts[0];
+
+  function copyDoc(d: Artifact) {
+    void navigator.clipboard
+      .writeText(`# ${d.title}\n\n${d.content}`)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  }
+
+  function downloadDoc(d: Artifact) {
+    const blob = new Blob([`# ${d.title}\n\n${d.content}\n`], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // Keep CJK characters in filenames — only collapse the rest to dashes.
+    a.download = `${
+      d.title
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, "-")
+        .replace(/^-+|-+$/g, "") || "artifact"
+    }.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-bg text-fg">
@@ -239,17 +323,19 @@ export function WarRoom({ sprintId }: Props) {
         <h1 className="min-w-0 flex-1 truncate font-display text-base font-medium tracking-tight">
           {sprint.title}
         </h1>
+        {/* Team sheet: available below lg, where the roster sidebar is hidden */}
         <button
           type="button"
-          className="inline-flex size-11 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg md:hidden"
+          className="inline-flex size-11 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg lg:hidden"
           onClick={() => setPanel(panel === "team" ? "none" : "team")}
           aria-label="Team"
         >
           <Users className="size-4" />
         </button>
+        {/* Docs sheet: available below xl, where the artifact sidebar is hidden */}
         <button
           type="button"
-          className="inline-flex size-11 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg md:hidden"
+          className="inline-flex size-11 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg xl:hidden"
           onClick={() => setPanel(panel === "docs" ? "none" : "docs")}
           aria-label="Artifacts"
         >
@@ -274,29 +360,53 @@ export function WarRoom({ sprintId }: Props) {
             <ol className="mx-auto mt-8 max-w-2xl space-y-6">
               {sprint.messages.map((m) => {
                 const raw = liveId === m.id ? liveText : m.content;
-                const hideProto =
-                  liveId === m.id && /:::(agent|artifact|handoff)/.test(raw);
-                const shown = hideProto ? "" : raw;
+                let shown = raw;
+                if (liveId === m.id) {
+                  // While streaming, hide protocol blocks from the first marker
+                  // onward, but keep prose before it visible — a reply must
+                  // never go blank the moment an artifact block starts.
+                  const markerAt = raw.search(/:::(?:agent|artifact|handoff)/);
+                  if (markerAt >= 0) shown = raw.slice(0, markerAt).trimEnd();
+                }
                 return (
-                <li key={m.id}>
-                  {m.role === "user" ? (
-                    <div className="ml-8 rounded-lg bg-bg-elevated px-4 py-3 shadow-[var(--shadow-border)]">
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
-                    </div>
-                  ) : (
-                    <AgentBubble
-                      agentId={m.agentId ?? "conductor"}
-                      content={shown}
-                      streaming={busy && liveId === m.id && shown !== ""}
-                      waiting={busy && liveId === m.id && shown === ""}
-                    />
-                  )}
-                </li>
+                  <li key={m.id}>
+                    {m.role === "user" ? (
+                      <div className="ml-8 rounded-lg bg-bg-elevated px-4 py-3 shadow-[var(--shadow-border)]">
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
+                      </div>
+                    ) : (
+                      <AgentBubble
+                        agentId={m.agentId ?? "conductor"}
+                        content={shown}
+                        streaming={busy && liveId === m.id && shown !== ""}
+                        waiting={busy && liveId === m.id && shown === ""}
+                      />
+                    )}
+                  </li>
                 );
               })}
             </ol>
             {error ? (
               <p className="mx-auto mt-4 max-w-2xl text-sm text-danger">{error}</p>
+            ) : null}
+            {kickoffFailed && !busy ? (
+              <div className="mx-auto mt-3 max-w-2xl">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    void run({
+                      agentId: "conductor",
+                      userText: `New sprint. Briefing:\n\n${sprint.idea}`,
+                      recordUser: false,
+                      kickoff: true,
+                    })
+                  }
+                >
+                  <RotateCcw className="size-3.5" />
+                  Retry kickoff
+                </Button>
+              </div>
             ) : null}
           </div>
 
@@ -338,15 +448,28 @@ export function WarRoom({ sprintId }: Props) {
                   className="min-h-[44px] max-h-40 bg-transparent py-2.5 shadow-none focus:ring-0"
                   rows={2}
                 />
-                <Button
-                  size="icon"
-                  disabled={busy || !draft.trim()}
-                  onClick={submit}
-                  aria-label="Send"
-                  className="shrink-0"
-                >
-                  <ArrowUp className="size-4" />
-                </Button>
+                {busy ? (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => abortRef.current?.abort()}
+                    aria-label="Stop generating"
+                    title="Stop generating"
+                    className="shrink-0"
+                  >
+                    <Square className="size-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    size="icon"
+                    disabled={!draft.trim()}
+                    onClick={submit}
+                    aria-label="Send"
+                    className="shrink-0"
+                  >
+                    <ArrowUp className="size-4" />
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -360,8 +483,34 @@ export function WarRoom({ sprintId }: Props) {
           />
           {doc ? (
             <div className="min-h-0 flex-1 overflow-y-auto border-t border-border p-4">
-              <p className="font-mono text-[11px] text-fg-subtle">{doc.kind}</p>
-              <h2 className="mt-1 font-display text-lg font-medium tracking-tight">{doc.title}</h2>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-mono text-[11px] text-fg-subtle">{doc.kind}</p>
+                  <h2 className="mt-1 font-display text-lg font-medium tracking-tight">
+                    {doc.title}
+                  </h2>
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => copyDoc(doc)}
+                    aria-label="Copy markdown"
+                    title="Copy markdown"
+                    className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
+                  >
+                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadDoc(doc)}
+                    aria-label="Download as .md"
+                    title="Download as .md"
+                    className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
+                  >
+                    <Download className="size-3.5" />
+                  </button>
+                </div>
+              </div>
               <Markdown className="mt-3" text={doc.content} />
             </div>
           ) : (
@@ -373,7 +522,13 @@ export function WarRoom({ sprintId }: Props) {
       </div>
 
       {panel !== "none" ? (
-        <div className="fixed inset-0 z-40 bg-bg/70 lg:hidden" onClick={() => setPanel("none")}>
+        <div
+          className={cn(
+            "fixed inset-0 z-40 bg-bg/70",
+            panel === "team" ? "lg:hidden" : "xl:hidden",
+          )}
+          onClick={() => setPanel("none")}
+        >
           <div
             className="absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-xl bg-bg-elevated p-4 shadow-[var(--shadow-border)]"
             onClick={(e) => e.stopPropagation()}
@@ -405,7 +560,31 @@ export function WarRoom({ sprintId }: Props) {
                   selected={openDoc}
                   onSelect={(id) => setOpenDoc(id)}
                 />
-                {doc ? <Markdown className="mt-4" text={doc.content} /> : null}
+                {doc ? (
+                  <div className="mt-4">
+                    <div className="mb-2 flex justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => copyDoc(doc)}
+                        aria-label="Copy markdown"
+                        title="Copy markdown"
+                        className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
+                      >
+                        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadDoc(doc)}
+                        aria-label="Download as .md"
+                        title="Download as .md"
+                        className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
+                      >
+                        <Download className="size-3.5" />
+                      </button>
+                    </div>
+                    <Markdown text={doc.content} />
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -493,7 +672,8 @@ function AgentBubble({
   streaming: boolean;
   waiting: boolean;
 }) {
-  const agent = AGENT_MAP[agentId];
+  // Fallback for messages persisted before the agentId whitelist existed.
+  const agent = AGENT_MAP[agentId] ?? AGENT_MAP.conductor;
   return (
     <div>
       <p className="mb-2 flex items-baseline gap-2">
@@ -547,5 +727,3 @@ function ArtifactList({
     </ul>
   );
 }
-
-

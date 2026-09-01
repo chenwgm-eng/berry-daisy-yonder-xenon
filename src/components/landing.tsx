@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Trash2 } from "lucide-react";
 import { AGENTS, STAGES, STARTERS } from "@/lib/agents";
 import { useSprintStore } from "@/lib/store";
 import { timeAgo } from "@/lib/utils";
@@ -13,6 +13,7 @@ export function Landing() {
   const hydrated = useSprintStore((s) => s.hydrated);
   const sprints = useSprintStore((s) => s.sprints);
   const createSprint = useSprintStore((s) => s.createSprint);
+  const deleteSprint = useSprintStore((s) => s.deleteSprint);
   const [idea, setIdea] = useState("");
 
   function start(text: string) {
@@ -139,11 +140,11 @@ export function Landing() {
             <h2 className="font-display text-2xl font-medium tracking-tight">Open sprints</h2>
             <ul className="mt-5 divide-y divide-border rounded-lg shadow-[var(--shadow-border)]">
               {sprints.slice(0, 8).map((sp) => (
-                <li key={sp.id}>
+                <li key={sp.id} className="relative">
                   <Link
                     to="/sprint/$sprintId"
                     params={{ sprintId: sp.id }}
-                    className="flex items-center justify-between gap-4 px-4 py-4 transition-colors hover:bg-bg-elevated"
+                    className="flex items-center justify-between gap-4 py-4 pr-14 pl-4 transition-colors hover:bg-bg-elevated"
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium">{sp.title}</p>
@@ -153,6 +154,21 @@ export function Landing() {
                     </div>
                     <ArrowRight className="size-4 shrink-0 text-fg-subtle" />
                   </Link>
+                  <button
+                    type="button"
+                    aria-label={`Delete sprint ${sp.title}`}
+                    title="Delete sprint"
+                    className="absolute top-1/2 right-3 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-bg-subtle hover:text-danger"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (window.confirm(`Delete "${sp.title}"? This cannot be undone.`)) {
+                        deleteSprint(sp.id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
                 </li>
               ))}
             </ul>

@@ -6,13 +6,16 @@ import {
   Copy,
   Download,
   Layers,
+  Link2Off,
   Pencil,
   RotateCcw,
+  Share2,
   Shuffle,
   Square,
   Users,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   AGENTS,
   AGENT_MAP,
@@ -21,12 +24,15 @@ import {
   type AgentId,
 } from "@/lib/agents";
 import { streamAgent } from "@/lib/chat-client";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   parseAgentOutput,
   parseBoardSections,
   stripBoardMarkers,
 } from "@/lib/parse-output";
+import { getMySprint, setMySprintShared, upsertMySprint } from "@/lib/sprints";
 import { useSprintStore } from "@/lib/store";
+import { useT } from "@/lib/i18n";
 import type { Artifact, BoardSection, Message, Sprint } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,6 +43,7 @@ import { StackMark } from "@/components/mark";
 type Props = { sprintId: string };
 
 export function WarRoom({ sprintId }: Props) {
+  const t = useT();
   const hydrated = useSprintStore((s) => s.hydrated);
   const sprint = useSprintStore((s) => s.sprints.find((x) => x.id === sprintId));
   const [draft, setDraft] = useState("");
@@ -48,11 +55,15 @@ export function WarRoom({ sprintId }: Props) {
   const [panel, setPanel] = useState<"none" | "team" | "docs">("none");
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sharedId, setSharedId] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [triedRemote, setTriedRemote] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   // Keyed by sprintId — a plain boolean lock survives a sprint switch and
   // would suppress the next sprint's kickoff.
   const kickoffFor = useRef<string | null>(null);
+  const fetchedFor = useRef<string | null>(null);
   const busyRef = useRef(false);
   const liveTextRef = useRef("");
 
@@ -65,6 +76,8 @@ export function WarRoom({ sprintId }: Props) {
   const markKickoff = useSprintStore((s) => s.markKickoff);
   const setStage = useSprintStore((s) => s.setStage);
   const patchSprint = useSprintStore((s) => s.patchSprint);
+  const importSprint = useSprintStore((s) => s.importSprint);
+  const { user } = useCurrentUserState();
 
   const scrollToEnd = useCallback(() => {
     const el = scroller.current;
@@ -75,6 +88,30 @@ export function WarRoom({ sprintId }: Props) {
   useEffect(() => {
     scrollToEnd();
   }, [sprint?.messages.length, liveText, scrollToEnd]);
+
+  // Cross-device read path: the sprint isn't in localStorage but I'm signed
+  // in — fetch my copy from the server before declaring it gone.
+  useEffect(() => {
+    if (!hydrated || sprint || !user) return;
+    if (fetchedFor.current === sprintId) return;
+    fetchedFor.current = sprintId;
+    void getMySprint({ data: sprintId })
+      .then((remote) => {
+        if (remote) importSprint(remote);
+      })
+      .catch(() => {})
+      .finally(() => setTriedRemote(true));
+  }, [hydrated, sprint, user, sprintId, importSprint]);
+
+  // Write-through sync while signed in: every local change is upserted after
+  // a short debounce, so the other device (and any shared link) stays fresh.
+  useEffect(() => {
+    if (!user || !sprint) return;
+    const timer = window.setTimeout(() => {
+      void upsertMySprint({ data: sprint }).catch(() => {});
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [user, sprint]);
 
   const run = useCallback(
     async (opts: {
@@ -212,13 +249,13 @@ export function WarRoom({ sprintId }: Props) {
           }
           return;
         }
-        const message = err instanceof Error ? err.message : "The floor went quiet.";
+        const message = err instanceof Error ? err.message : t("war.fellQuiet");
         setError(message);
         if (opts.kickoff) setKickoffFailed(true);
         updateMessage(
           sprintId,
           placeholder.id,
-          `Could not reach the specialist. ${message}`,
+          t("war.couldNotReach", { message }),
         );
       } finally {
         busyRef.current = false;
@@ -237,6 +274,7 @@ export function WarRoom({ sprintId }: Props) {
       setMessageBoard,
       setStage,
       sprintId,
+      t,
       updateMessage,
     ],
   );
@@ -295,20 +333,53 @@ export function WarRoom({ sprintId }: Props) {
     });
   }
 
+  async function toggleShare() {
+    if (!sprint || sharing) return;
+    setSharing(true);
+    try {
+      if (sharedId) {
+        await setMySprintShared({ data: { id: sprintId, shared: false } });
+        setSharedId(null);
+        toast.success(t("war.unshared"));
+      } else {
+        // Sync first so the shared copy is the current one, then mint the link.
+        await upsertMySprint({ data: sprint });
+        const res = await setMySprintShared({ data: { id: sprintId, shared: true } });
+        setSharedId(res.shareId);
+        await navigator.clipboard.writeText(`${window.location.origin}/share/${res.shareId}`);
+        toast.success(t("war.shareCopied"));
+      }
+    } catch (err) {
+      toast.error(
+        t("war.shareFailed", { message: err instanceof Error ? err.message : "error" }),
+      );
+    } finally {
+      setSharing(false);
+    }
+  }
+
   if (!hydrated) {
     return (
       <div className="flex min-h-dvh items-center justify-center text-sm text-fg-muted">
-        Restoring the floor…
+        {t("war.restoring")}
       </div>
     );
   }
 
   if (!sprint) {
+    // Signed in and the server lookup hasn't answered yet — hold the spinner.
+    if (user && !triedRemote) {
+      return (
+        <div className="flex min-h-dvh items-center justify-center text-sm text-fg-muted">
+          {t("war.restoring")}
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
-        <p className="font-display text-2xl">This sprint is gone.</p>
+        <p className="font-display text-2xl">{t("war.gone")}</p>
         <Link to="/" className="text-sm text-fg-muted underline-offset-4 hover:underline">
-          Back to the floor
+          {t("war.backToFloor")}
         </Link>
       </div>
     );
@@ -348,7 +419,7 @@ export function WarRoom({ sprintId }: Props) {
 
   function renameSprint() {
     if (!sprint) return;
-    const next = window.prompt("Rename sprint", sprint.title);
+    const next = window.prompt(t("war.rename"), sprint.title);
     if (next && next.trim() && next.trim() !== sprint.title) {
       patchSprint(sprintId, { title: next.trim() });
     }
@@ -369,17 +440,29 @@ export function WarRoom({ sprintId }: Props) {
           type="button"
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-bg-subtle hover:text-fg"
           onClick={renameSprint}
-          aria-label="Rename sprint"
-          title="Rename sprint"
+          aria-label={t("war.rename")}
+          title={t("war.rename")}
         >
           <Pencil className="size-3.5" />
         </button>
+        {user ? (
+          <button
+            type="button"
+            disabled={sharing}
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-bg-subtle hover:text-fg disabled:opacity-40"
+            onClick={() => void toggleShare()}
+            aria-label={sharedId ? t("war.unshare") : t("war.share")}
+            title={sharedId ? t("war.unshare") : t("war.share")}
+          >
+            {sharedId ? <Link2Off className="size-3.5" /> : <Share2 className="size-3.5" />}
+          </button>
+        ) : null}
         {/* Team sheet: available below lg, where the roster sidebar is hidden */}
         <button
           type="button"
           className="inline-flex size-11 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg lg:hidden"
           onClick={() => setPanel(panel === "team" ? "none" : "team")}
-          aria-label="Team"
+          aria-label={t("war.team")}
         >
           <Users className="size-4" />
         </button>
@@ -388,7 +471,7 @@ export function WarRoom({ sprintId }: Props) {
           type="button"
           className="inline-flex size-11 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg xl:hidden"
           onClick={() => setPanel(panel === "docs" ? "none" : "docs")}
-          aria-label="Artifacts"
+          aria-label={t("war.artifacts")}
         >
           <Layers className="size-4" />
         </button>
@@ -466,7 +549,7 @@ export function WarRoom({ sprintId }: Props) {
                   }
                 >
                   <RotateCcw className="size-3.5" />
-                  Retry kickoff
+                  {t("war.retryKickoff")}
                 </Button>
               </div>
             ) : null}
@@ -487,11 +570,11 @@ export function WarRoom({ sprintId }: Props) {
                     })
                   }
                 >
-                  Run review board
+                  {t("war.runBoard")}
                 </Button>
                 {active.id !== "conductor" ? (
                   <span className="inline-flex h-9 items-center font-mono text-[11px] text-fg-muted">
-                    talking to {active.slash}
+                    {t("war.talkingTo", { slash: active.slash })}
                   </span>
                 ) : null}
               </div>
@@ -506,7 +589,7 @@ export function WarRoom({ sprintId }: Props) {
                       submit();
                     }
                   }}
-                  placeholder={`Message ${active.name}…  /office-hours  /ceo  /eng`}
+                  placeholder={t("war.messagePlaceholder", { name: active.name })}
                   className="min-h-[44px] max-h-40 bg-transparent py-2.5 shadow-none focus:ring-0"
                   rows={2}
                 />
@@ -515,8 +598,8 @@ export function WarRoom({ sprintId }: Props) {
                     size="icon"
                     variant="outline"
                     onClick={() => abortRef.current?.abort()}
-                    aria-label="Stop generating"
-                    title="Stop generating"
+                    aria-label={t("war.stop")}
+                    title={t("war.stop")}
                     className="shrink-0"
                   >
                     <Square className="size-4" />
@@ -526,7 +609,7 @@ export function WarRoom({ sprintId }: Props) {
                     size="icon"
                     disabled={!draft.trim()}
                     onClick={submit}
-                    aria-label="Send"
+                    aria-label={t("war.send")}
                     className="shrink-0"
                   >
                     <ArrowUp className="size-4" />
@@ -556,8 +639,8 @@ export function WarRoom({ sprintId }: Props) {
                   <button
                     type="button"
                     onClick={() => copyDoc(doc)}
-                    aria-label="Copy markdown"
-                    title="Copy markdown"
+                    aria-label={t("war.copyMarkdown")}
+                    title={t("war.copyMarkdown")}
                     className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
                   >
                     {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -565,8 +648,8 @@ export function WarRoom({ sprintId }: Props) {
                   <button
                     type="button"
                     onClick={() => downloadDoc(doc)}
-                    aria-label="Download as .md"
-                    title="Download as .md"
+                    aria-label={t("war.downloadMd")}
+                    title={t("war.downloadMd")}
                     className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
                   >
                     <Download className="size-3.5" />
@@ -577,7 +660,7 @@ export function WarRoom({ sprintId }: Props) {
             </div>
           ) : (
             <p className="p-4 text-sm text-fg-muted">
-              Artifacts land here when a specialist writes a review or design doc.
+              {t("war.artifactsHint")}
             </p>
           )}
         </aside>
@@ -596,12 +679,14 @@ export function WarRoom({ sprintId }: Props) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
-              <p className="font-display text-lg">{panel === "team" ? "Team" : "Artifacts"}</p>
+              <p className="font-display text-lg">
+                {panel === "team" ? t("war.team") : t("war.artifacts")}
+              </p>
               <button
                 type="button"
                 className="inline-flex size-11 items-center justify-center"
                 onClick={() => setPanel("none")}
-                aria-label="Close"
+                aria-label={t("war.close")}
               >
                 <X className="size-4" />
               </button>
@@ -628,8 +713,8 @@ export function WarRoom({ sprintId }: Props) {
                       <button
                         type="button"
                         onClick={() => copyDoc(doc)}
-                        aria-label="Copy markdown"
-                        title="Copy markdown"
+                        aria-label={t("war.copyMarkdown")}
+                        title={t("war.copyMarkdown")}
                         className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
                       >
                         {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -637,8 +722,8 @@ export function WarRoom({ sprintId }: Props) {
                       <button
                         type="button"
                         onClick={() => downloadDoc(doc)}
-                        aria-label="Download as .md"
-                        title="Download as .md"
+                        aria-label={t("war.downloadMd")}
+                        title={t("war.downloadMd")}
                         className="inline-flex size-8 items-center justify-center rounded-md text-fg-muted hover:bg-bg-subtle hover:text-fg"
                       >
                         <Download className="size-3.5" />
@@ -712,10 +797,13 @@ function Roster({
   );
 }
 
-function Briefing({ idea }: { idea: string }) {
+export function Briefing({ idea }: { idea: string }) {
+  const t = useT();
   return (
     <div className="mx-auto max-w-2xl rounded-lg px-1">
-      <p className="font-mono text-[11px] tracking-[0.16em] text-fg-subtle uppercase">Briefing</p>
+      <p className="font-mono text-[11px] tracking-[0.16em] text-fg-subtle uppercase">
+        {t("war.briefing")}
+      </p>
       <p className="mt-2 font-display text-2xl font-medium leading-snug tracking-tight md:text-3xl">
         {idea}
       </p>
@@ -723,7 +811,7 @@ function Briefing({ idea }: { idea: string }) {
   );
 }
 
-function AgentBubble({
+export function AgentBubble({
   agentId,
   content,
   streaming,
@@ -734,6 +822,7 @@ function AgentBubble({
   streaming: boolean;
   waiting: boolean;
 }) {
+  const t = useT();
   // Fallback for messages persisted before the agentId whitelist existed.
   const agent = AGENT_MAP[agentId] ?? AGENT_MAP.conductor;
   return (
@@ -744,7 +833,7 @@ function AgentBubble({
         <span className="text-[12px] text-fg-muted">{agent.role}</span>
       </p>
       {waiting ? (
-        <p className="shimmer font-mono text-[13px]">thinking</p>
+        <p className="shimmer font-mono text-[13px]">{t("war.thinking")}</p>
       ) : (
         <Markdown text={content} className={streaming ? "opacity-90" : undefined} />
       )}
@@ -761,6 +850,7 @@ function MessageActions({
   onRetry: () => void;
   onReanswer: (id: AgentId) => void;
 }) {
+  const t = useT();
   const [picking, setPicking] = useState(false);
   return (
     <div className="mt-2">
@@ -772,7 +862,7 @@ function MessageActions({
           className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 font-mono text-[11px] text-fg-subtle hover:bg-bg-subtle hover:text-fg"
         >
           <RotateCcw className="size-3" />
-          retry
+          {t("war.retry")}
         </button>
         <button
           type="button"
@@ -781,7 +871,7 @@ function MessageActions({
           className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 font-mono text-[11px] text-fg-subtle hover:bg-bg-subtle hover:text-fg"
         >
           <Shuffle className="size-3" />
-          answer as…
+          {t("war.answerAs")}
         </button>
       </div>
       {picking ? (
@@ -803,7 +893,7 @@ function MessageActions({
   );
 }
 
-function BoardCards({ sections }: { sections: BoardSection[] }) {
+export function BoardCards({ sections }: { sections: BoardSection[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {sections.map((sec, i) => {
@@ -835,10 +925,11 @@ function ArtifactList({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
+  const t = useT();
   const items = useMemo(() => artifacts, [artifacts]);
   if (items.length === 0) {
     return (
-      <p className="p-4 text-sm text-fg-muted">No artifacts yet. Run a specialist or the board.</p>
+      <p className="p-4 text-sm text-fg-muted">{t("war.noArtifacts")}</p>
     );
   }
   return (

@@ -14,6 +14,8 @@ type State = {
   createSprint: (idea: string) => Sprint;
   deleteSprint: (id: string) => void;
   togglePin: (id: string) => void;
+  /** Insert a sprint from the server, replacing the local copy only when the incoming one is newer (last-write-wins by updatedAt). */
+  importSprint: (sprint: Sprint) => void;
   getSprint: (id: string) => Sprint | undefined;
   patchSprint: (id: string, patch: Partial<Sprint>) => void;
   addMessage: (sprintId: string, msg: Omit<Message, "id" | "createdAt"> & { id?: string }) => Message;
@@ -142,6 +144,14 @@ export const useSprintStore = create<State>()(
           sprints: get().sprints.map((s) =>
             s.id === id ? { ...s, pinned: !s.pinned, updatedAt: Date.now() } : s,
           ),
+        }),
+      importSprint: (sprint) =>
+        set({
+          sprints: get().sprints.some((s) => s.id === sprint.id)
+            ? get().sprints.map((s) =>
+                s.id === sprint.id && sprint.updatedAt >= s.updatedAt ? sprint : s,
+              )
+            : [sprint, ...get().sprints],
         }),
       getSprint: (id) => get().sprints.find((s) => s.id === id),
       patchSprint: (id, patch) =>

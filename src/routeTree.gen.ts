@@ -11,7 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ShareShareIdRouteImport } from './routes/share.$shareId'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SprintSprintIdRouteImport } from './routes/sprint.$sprintId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -24,9 +27,24 @@ const TeamRoute = TeamRouteImport.update({
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShareShareIdRoute = ShareShareIdRouteImport.update({
+  id: '/share/$shareId',
+  path: '/share/$shareId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiChatRoute = ApiChatRouteImport.update({
   id: '/api/chat',
   path: '/api/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SprintSprintIdRoute = SprintSprintIdRouteImport.update({
@@ -36,36 +54,70 @@ const SprintSprintIdRoute = SprintSprintIdRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/team': typeof TeamRoute
-  '/api/chat': typeof ApiChatRoute
-  '/sprint/$sprintId': typeof SprintSprintIdRoute
+  '/': typeof IndexRouteImport
+  '/team': typeof TeamRouteImport
+  '/login': typeof LoginRouteImport
+  '/share/$shareId': typeof ShareShareIdRouteImport
+  '/api/chat': typeof ApiChatRouteImport
+  '/api/auth/$': typeof ApiAuthSplatRouteImport
+  '/sprint/$sprintId': typeof SprintSprintIdRouteImport
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/team': typeof TeamRoute
-  '/api/chat': typeof ApiChatRoute
-  '/sprint/$sprintId': typeof SprintSprintIdRoute
+  '/': typeof IndexRouteImport
+  '/team': typeof TeamRouteImport
+  '/login': typeof LoginRouteImport
+  '/share/$shareId': typeof ShareShareIdRouteImport
+  '/api/chat': typeof ApiChatRouteImport
+  '/api/auth/$': typeof ApiAuthSplatRouteImport
+  '/sprint/$sprintId': typeof SprintSprintIdRouteImport
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/team': typeof TeamRoute
-  '/api/chat': typeof ApiChatRoute
-  '/sprint/$sprintId': typeof SprintSprintIdRoute
+  '/': typeof IndexRouteImport
+  '/team': typeof TeamRouteImport
+  '/login': typeof LoginRouteImport
+  '/share/$shareId': typeof ShareShareIdRouteImport
+  '/api/chat': typeof ApiChatRouteImport
+  '/api/auth/$': typeof ApiAuthSplatRouteImport
+  '/sprint/$sprintId': typeof SprintSprintIdRouteImport
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/team' | '/api/chat' | '/sprint/$sprintId'
+  fullPaths:
+    | '/'
+    | '/team'
+    | '/login'
+    | '/share/$shareId'
+    | '/api/chat'
+    | '/api/auth/$'
+    | '/sprint/$sprintId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/team' | '/api/chat' | '/sprint/$sprintId'
-  id: '__root__' | '/' | '/team' | '/api/chat' | '/sprint/$sprintId'
+  to:
+    | '/'
+    | '/team'
+    | '/login'
+    | '/share/$shareId'
+    | '/api/chat'
+    | '/api/auth/$'
+    | '/sprint/$sprintId'
+  id:
+    | '__root__'
+    | '/'
+    | '/team'
+    | '/login'
+    | '/share/$shareId'
+    | '/api/chat'
+    | '/api/auth/$'
+    | '/sprint/$sprintId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TeamRoute: typeof TeamRoute
+  LoginRoute: typeof LoginRoute
+  ShareShareIdRoute: typeof ShareShareIdRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   SprintSprintIdRoute: typeof SprintSprintIdRoute
 }
 
@@ -85,11 +137,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/share/$shareId': {
+      id: '/share/$shareId'
+      path: '/share/$shareId'
+      fullPath: '/share/$shareId'
+      preLoaderRoute: typeof ShareShareIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chat': {
       id: '/api/chat'
       path: '/api/chat'
       fullPath: '/api/chat'
       preLoaderRoute: typeof ApiChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sprint/$sprintId': {
@@ -105,7 +178,10 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TeamRoute: TeamRoute,
+  LoginRoute: LoginRoute,
+  ShareShareIdRoute: ShareShareIdRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
   SprintSprintIdRoute: SprintSprintIdRoute,
 }
 export const routeTree = rootRouteImport

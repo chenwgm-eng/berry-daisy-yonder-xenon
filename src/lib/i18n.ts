@@ -48,6 +48,7 @@ export function subscribeLocale(fn: () => void): () => void {
 
 const en = {
   "nav.team": "The team",
+  "nav.signIn": "Sign in",
 
   "landing.tagline": "Virtual engineering company",
   "landing.heroA": "That is not a copilot.",
@@ -70,6 +71,10 @@ const en = {
   "landing.delete": "Delete sprint",
   "landing.deleteConfirm": "Delete \"{title}\"? This cannot be undone.",
   "landing.footer": "Inspired by the open-source gstack skill pack. Agents recommend. You decide.",
+  "landing.importPrompt": "{count} local sprint(s) on this browser — import them into your account?",
+  "landing.importYes": "Import",
+  "landing.importDismiss": "Not now",
+  "landing.importDone": "Imported {count} sprint(s) into your account.",
 
   "war.restoring": "Restoring the floor…",
   "war.gone": "This sprint is gone.",
@@ -94,6 +99,20 @@ const en = {
   "war.artifactsHint": "Artifacts land here when a specialist writes a review or design doc.",
   "war.copyMarkdown": "Copy markdown",
   "war.downloadMd": "Download as .md",
+  "war.share": "Share",
+  "war.unshare": "Unshare",
+  "war.shareCopied": "Share link copied — anyone with it can read this sprint.",
+  "war.unshared": "Sharing is off — the link stops working immediately.",
+  "war.shareFailed": "Sharing failed: {message}",
+
+  "share.gone": "This shared sprint is unavailable.",
+  "share.readonly": "Read-only shared view",
+  "share.openApp": "Open GStack",
+
+  "login.title": "Sign in to GStack",
+  "login.sub": "Sync sprints across devices and share read-only links.",
+  "login.continueWith": "Continue with {provider}",
+  "login.disabled": "Sign-in is disabled in this environment.",
 
   "team.roster": "Roster",
   "team.title": "Ten specialists. One floor.",
@@ -108,6 +127,7 @@ export type I18nKey = keyof typeof en;
 
 const zh: Record<I18nKey, string> = {
   "nav.team": "团队",
+  "nav.signIn": "登录",
 
   "landing.tagline": "虚拟工程公司",
   "landing.heroA": "这不是一个副驾驶。",
@@ -130,6 +150,10 @@ const zh: Record<I18nKey, string> = {
   "landing.delete": "删除冲刺",
   "landing.deleteConfirm": "删除「{title}」？此操作不可撤销。",
   "landing.footer": "灵感来自开源 gstack 技能包。智能体给建议，你来做决定。",
+  "landing.importPrompt": "这个浏览器里有 {count} 个本地冲刺——导入到你的账号？",
+  "landing.importYes": "导入",
+  "landing.importDismiss": "暂不",
+  "landing.importDone": "已把 {count} 个冲刺导入你的账号。",
 
   "war.restoring": "正在恢复现场…",
   "war.gone": "这个冲刺已不存在。",
@@ -154,6 +178,20 @@ const zh: Record<I18nKey, string> = {
   "war.artifactsHint": "专家写出评审或设计文档后，交付物会出现在这里。",
   "war.copyMarkdown": "复制 Markdown",
   "war.downloadMd": "下载 .md",
+  "war.share": "分享",
+  "war.unshare": "取消分享",
+  "war.shareCopied": "分享链接已复制——任何持有链接的人都能阅读这个冲刺。",
+  "war.unshared": "已取消分享——链接即刻失效。",
+  "war.shareFailed": "分享失败：{message}",
+
+  "share.gone": "这个分享链接已失效或已被撤销。",
+  "share.readonly": "只读分享视图",
+  "share.openApp": "打开 GStack",
+
+  "login.title": "登录 GStack",
+  "login.sub": "跨设备同步冲刺，并生成可撤销的只读分享链接。",
+  "login.continueWith": "使用 {provider} 继续",
+  "login.disabled": "当前环境未启用登录。",
 
   "team.roster": "名册",
   "team.title": "十位专家。一间作战室。",

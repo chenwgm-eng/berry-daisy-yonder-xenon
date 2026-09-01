@@ -1,7 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, ArrowUpRight, Pencil, Pin, Search, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { AGENTS, STAGES, STARTERS } from "@/lib/agents";
+import { authEnabled } from "@/lib/auth/client";
+import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { pullMissingFromCloud, pushAllToCloud } from "@/lib/cloud-sync";
 import { useT } from "@/lib/i18n";
 import { useSprintStore } from "@/lib/store";
 import { timeAgo } from "@/lib/utils";
@@ -9,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { LocaleToggle } from "@/components/locale-toggle";
 import { StackMark } from "@/components/mark";
+
+const IMPORT_FLAG = "gstack-cloud-import";
 
 export function Landing() {
   const navigate = useNavigate();
@@ -21,12 +28,52 @@ export function Landing() {
   const patchSprint = useSprintStore((s) => s.patchSprint);
   const [idea, setIdea] = useState("");
   const [query, setQuery] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importClosed, setImportClosed] = useState(() => {
+    try {
+      return localStorage.getItem(IMPORT_FLAG) === "done";
+    } catch {
+      return false;
+    }
+  });
+  const { user, isPending } = useCurrentUserState();
 
   function start(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
     const sprint = createSprint(trimmed);
     void navigate({ to: "/sprint/$sprintId", params: { sprintId: sprint.id } });
+  }
+
+  // On sign-in: pull sprints that exist on the server but not in this browser.
+  useEffect(() => {
+    if (!authEnabled || isPending || !user || !hydrated) return;
+    void pullMissingFromCloud().catch(() => {});
+  }, [user, isPending, hydrated]);
+
+  const showImportBanner =
+    authEnabled && !isPending && Boolean(user) && hydrated && sprints.length > 0 && !importClosed;
+
+  function closeImportBanner() {
+    try {
+      localStorage.setItem(IMPORT_FLAG, "done");
+    } catch {
+      /* ignore */
+    }
+    setImportClosed(true);
+  }
+
+  async function doImport() {
+    setImporting(true);
+    try {
+      const n = await pushAllToCloud();
+      toast.success(t("landing.importDone", { count: String(n) }));
+      closeImportBanner();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "error");
+    } finally {
+      setImporting(false);
+    }
   }
 
   const q = query.trim().toLowerCase();
@@ -56,6 +103,17 @@ export function Landing() {
           >
             {t("nav.team")}
           </Link>
+          <SignedOut>
+            <Link
+              to="/login"
+              className="inline-flex h-11 items-center px-3 text-sm text-fg-muted transition-colors hover:text-fg"
+            >
+              {t("nav.signIn")}
+            </Link>
+          </SignedOut>
+          <SignedIn>
+            <UserButton />
+          </SignedIn>
         </nav>
       </header>
 
@@ -151,6 +209,22 @@ export function Landing() {
             ))}
           </ul>
         </section>
+
+        {showImportBanner ? (
+          <section className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-bg-elevated p-4 shadow-[var(--shadow-border)]">
+            <p className="text-sm text-fg-muted">
+              {t("landing.importPrompt", { count: String(sprints.length) })}
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void doImport()} disabled={importing}>
+                {t("landing.importYes")}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={closeImportBanner} disabled={importing}>
+                {t("landing.importDismiss")}
+              </Button>
+            </div>
+          </section>
+        ) : null}
 
         {hydrated && sprints.length > 0 ? (
           <section className="mt-16">

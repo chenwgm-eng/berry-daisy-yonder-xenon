@@ -23,9 +23,11 @@ a specific specialist — a bare `/ceo` just switches who you're talking to.
 "Run review board" gets office-hours + CEO + design + eng in one pass and
 renders each specialist as its own card. Any reply can be retried or
 re-answered by a different specialist from its action bar. Durable
-deliverables land in the Artifacts panel, where they can be copied or
-downloaded as Markdown. Sprints can be searched, pinned, renamed, and deleted
-from the home page. The UI speaks English and 中文 — use the header toggle.
+deliverables land in the Artifacts panel, where they can be copied, downloaded
+as Markdown, or published straight to a GitHub issue (set a PAT once — it
+stays in this browser; the call goes browser → api.github.com directly).
+Sprints can be searched, pinned, renamed, and deleted from the home page. The
+UI speaks English and 中文 — use the header toggle.
 
 Sign in (Google / X via the Grok broker) to sync sprints across devices and
 share a revocable read-only link (`/share/<id>`) for any sprint — teammates
@@ -91,13 +93,14 @@ Grok Build.
 ## Repo layout
 
 - `src/routes/` — pages (`/`, `/team`, `/login`, `/sprint/$sprintId`, `/share/$shareId`) and API handlers (`api.chat`, `api/auth/$`)
-- `src/components/` — landing, war room, markdown renderer, UI primitives
+- `src/components/` — landing, war room, markdown renderer, GitHub publish, UI primitives
 - `src/lib/i18n.ts` — en/中文 UI strings, locale state, `t()` / `useT()`
 - `src/lib/agents.ts` — the ten specialists: roles, prompts, slash commands
 - `src/lib/parse-output.ts` — `:::artifact` / `:::handoff` / `:::agent:` protocol parsers (unit-tested)
 - `src/lib/store.ts` — sprint store (persisted, versioned, quota-guarded)
 - `src/lib/sprints.ts` + `sprints-repo.ts` — server functions + per-user SQL layer (unit-tested)
 - `src/lib/cloud-sync.ts` — local ↔ cloud pull/push helpers
+- `src/lib/github-publish.ts` — artifact → GitHub issue (PAT stays browser-local)
 - `src/lib/auth/` — pre-wired Better Auth (do not edit; see AGENTS.md)
 - `scripts/` — build/preview/QA tooling; `server/` — platform middleware
 

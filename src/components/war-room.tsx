@@ -37,6 +37,7 @@ import type { Artifact, BoardSection, Message, Sprint } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { PublishToGitHubButton } from "@/components/github-publish";
 import { Markdown } from "@/components/markdown";
 import { StackMark } from "@/components/mark";
 
@@ -654,6 +655,7 @@ export function WarRoom({ sprintId }: Props) {
                   >
                     <Download className="size-3.5" />
                   </button>
+                  <PublishToGitHubButton artifact={doc} sprintTitle={sprint.title} />
                 </div>
               </div>
               <Markdown className="mt-3" text={doc.content} />
@@ -728,6 +730,7 @@ export function WarRoom({ sprintId }: Props) {
                       >
                         <Download className="size-3.5" />
                       </button>
+                      <PublishToGitHubButton artifact={doc} sprintTitle={sprint.title} />
                     </div>
                     <Markdown text={doc.content} />
                   </div>

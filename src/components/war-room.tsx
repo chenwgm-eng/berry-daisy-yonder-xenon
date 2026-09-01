@@ -8,6 +8,7 @@ import {
   Layers,
   Pencil,
   RotateCcw,
+  Shuffle,
   Square,
   Users,
   X,
@@ -26,7 +27,7 @@ import {
   stripBoardMarkers,
 } from "@/lib/parse-output";
 import { useSprintStore } from "@/lib/store";
-import type { Artifact, BoardSection, Sprint } from "@/lib/types";
+import type { Artifact, BoardSection, Message, Sprint } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -269,6 +270,31 @@ export function WarRoom({ sprintId }: Props) {
     void run({ agentId: sprint.activeAgentId, userText: text });
   }
 
+  /**
+   * Re-answer a completed agent message — same specialist by default, or any
+   * other one. The triggering user message and the old answer are replaced
+   * atomically so the visible conversation stays clean; the retry happens in
+   * the CURRENT context (history is read fresh inside run()). Kickoff answers
+   * have no stored user message, so the briefing is rebuilt instead.
+   */
+  function retryMessage(m: Message, asAgent?: AgentId) {
+    if (busy || !sprint) return;
+    const msgs = sprint.messages;
+    const idx = msgs.findIndex((x) => x.id === m.id);
+    if (idx < 0) return;
+    const prevUser = [...msgs.slice(0, idx)].reverse().find((x) => x.role === "user");
+    const userText = prevUser?.content ?? `New sprint. Briefing:\n\n${sprint.idea}`;
+    const fromMessage: AgentId | undefined =
+      m.agentId && Object.hasOwn(AGENT_MAP, m.agentId) ? m.agentId : undefined;
+    removeMessage(sprintId, m.id);
+    if (prevUser) removeMessage(sprintId, prevUser.id);
+    void run({
+      agentId: asAgent ?? fromMessage ?? sprint.activeAgentId,
+      userText,
+      recordUser: prevUser !== undefined,
+    });
+  }
+
   if (!hydrated) {
     return (
       <div className="flex min-h-dvh items-center justify-center text-sm text-fg-muted">
@@ -402,12 +428,21 @@ export function WarRoom({ sprintId }: Props) {
                     ) : liveId !== m.id && m.boardSections && m.boardSections.length > 0 ? (
                       <BoardCards sections={m.boardSections} />
                     ) : (
-                      <AgentBubble
-                        agentId={m.agentId ?? "conductor"}
-                        content={shown}
-                        streaming={busy && liveId === m.id && shown !== ""}
-                        waiting={busy && liveId === m.id && shown === ""}
-                      />
+                      <div className="group">
+                        <AgentBubble
+                          agentId={m.agentId ?? "conductor"}
+                          content={shown}
+                          streaming={busy && liveId === m.id && shown !== ""}
+                          waiting={busy && liveId === m.id && shown === ""}
+                        />
+                        {!busy && liveId !== m.id && m.content ? (
+                          <MessageActions
+                            currentAgentId={m.agentId ?? "conductor"}
+                            onRetry={() => retryMessage(m)}
+                            onReanswer={(id) => retryMessage(m, id)}
+                          />
+                        ) : null}
+                      </div>
                     )}
                   </li>
                 );
@@ -713,6 +748,57 @@ function AgentBubble({
       ) : (
         <Markdown text={content} className={streaming ? "opacity-90" : undefined} />
       )}
+    </div>
+  );
+}
+
+function MessageActions({
+  currentAgentId,
+  onRetry,
+  onReanswer,
+}: {
+  currentAgentId: AgentId;
+  onRetry: () => void;
+  onReanswer: (id: AgentId) => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  return (
+    <div className="mt-2">
+      {/* Always visible on touch, hover-revealed on desktop. */}
+      <div className="flex gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 font-mono text-[11px] text-fg-subtle hover:bg-bg-subtle hover:text-fg"
+        >
+          <RotateCcw className="size-3" />
+          retry
+        </button>
+        <button
+          type="button"
+          onClick={() => setPicking((p) => !p)}
+          aria-expanded={picking}
+          className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 font-mono text-[11px] text-fg-subtle hover:bg-bg-subtle hover:text-fg"
+        >
+          <Shuffle className="size-3" />
+          answer as…
+        </button>
+      </div>
+      {picking ? (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {AGENTS.filter((a) => a.id !== currentAgentId).map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => onReanswer(a.id)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 font-mono text-[11px] text-fg-muted shadow-[var(--shadow-border)] hover:text-fg hover:shadow-[var(--shadow-border-hover)]"
+            >
+              <span className="text-fg-subtle">{a.initials}</span>
+              {a.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

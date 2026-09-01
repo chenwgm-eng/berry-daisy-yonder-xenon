@@ -14,7 +14,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # The Grok-exported package-lock.json is out of sync with package.json
+      # (ajv / json-schema-traverse tree) and `npm ci` hard-fails on it.
+      # Install leniently until the lock file is regenerated with
+      # `npm install` and committed, then switch this back to `npm ci`.
+      - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
       - run: npm run lint

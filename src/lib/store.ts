@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { toast } from "sonner";
 import type { AgentId, StageId } from "./agents";
 import { AGENT_MAP, STAGES } from "./agents";
-import type { Artifact, Message, Sprint } from "./types";
+import type { Artifact, BoardSection, Message, Sprint } from "./types";
 import { uid } from "./utils";
 
 type State = {
@@ -12,10 +12,17 @@ type State = {
   markHydrated: () => void;
   createSprint: (idea: string) => Sprint;
   deleteSprint: (id: string) => void;
+  togglePin: (id: string) => void;
   getSprint: (id: string) => Sprint | undefined;
   patchSprint: (id: string, patch: Partial<Sprint>) => void;
   addMessage: (sprintId: string, msg: Omit<Message, "id" | "createdAt"> & { id?: string }) => Message;
   updateMessage: (sprintId: string, messageId: string, content: string) => void;
+  setMessageBoard: (
+    sprintId: string,
+    messageId: string,
+    content: string,
+    sections: BoardSection[],
+  ) => void;
   removeMessage: (sprintId: string, messageId: string) => void;
   addArtifacts: (
     sprintId: string,
@@ -68,6 +75,7 @@ function sanitizePersisted(input: unknown): { sprints: Sprint[] } {
       messages: Array.isArray(sp.messages) ? sp.messages : [],
       artifacts: Array.isArray(sp.artifacts) ? sp.artifacts : [],
       kickoffDone: sp.kickoffDone === true,
+      pinned: sp.pinned === true,
     });
   }
   return { sprints };
@@ -128,6 +136,12 @@ export const useSprintStore = create<State>()(
       },
       deleteSprint: (id) =>
         set({ sprints: get().sprints.filter((s) => s.id !== id) }),
+      togglePin: (id) =>
+        set({
+          sprints: get().sprints.map((s) =>
+            s.id === id ? { ...s, pinned: !s.pinned, updatedAt: Date.now() } : s,
+          ),
+        }),
       getSprint: (id) => get().sprints.find((s) => s.id === id),
       patchSprint: (id, patch) =>
         set({
@@ -161,6 +175,22 @@ export const useSprintStore = create<State>()(
                   updatedAt: Date.now(),
                   messages: s.messages.map((m) =>
                     m.id === messageId ? { ...m, content } : m,
+                  ),
+                }
+              : s,
+          ),
+        }),
+      setMessageBoard: (sprintId, messageId, content, sections) =>
+        set({
+          sprints: get().sprints.map((s) =>
+            s.id === sprintId
+              ? {
+                  ...s,
+                  updatedAt: Date.now(),
+                  messages: s.messages.map((m) =>
+                    m.id === messageId
+                      ? { ...m, content, boardSections: sections }
+                      : m,
                   ),
                 }
               : s,

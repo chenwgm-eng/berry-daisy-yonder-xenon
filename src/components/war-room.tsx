@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   Layers,
+  Pencil,
   RotateCcw,
   Square,
   Users,
@@ -25,7 +26,7 @@ import {
   stripBoardMarkers,
 } from "@/lib/parse-output";
 import { useSprintStore } from "@/lib/store";
-import type { Artifact, Sprint } from "@/lib/types";
+import type { Artifact, BoardSection, Sprint } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,11 +57,13 @@ export function WarRoom({ sprintId }: Props) {
 
   const addMessage = useSprintStore((s) => s.addMessage);
   const updateMessage = useSprintStore((s) => s.updateMessage);
+  const setMessageBoard = useSprintStore((s) => s.setMessageBoard);
   const removeMessage = useSprintStore((s) => s.removeMessage);
   const addArtifacts = useSprintStore((s) => s.addArtifacts);
   const setActiveAgent = useSprintStore((s) => s.setActiveAgent);
   const markKickoff = useSprintStore((s) => s.markKickoff);
   const setStage = useSprintStore((s) => s.setStage);
+  const patchSprint = useSprintStore((s) => s.patchSprint);
 
   const scrollToEnd = useCallback(() => {
     const el = scroller.current;
@@ -142,9 +145,11 @@ export function WarRoom({ sprintId }: Props) {
           const sections = parseBoardSections(full);
           if (sections.length > 0) {
             const arts: Omit<Artifact, "id" | "createdAt">[] = [];
+            const boardSecs: BoardSection[] = [];
             let combined = "";
             for (const sec of sections) {
               const parsed = parseAgentOutput(sec.body);
+              boardSecs.push({ agentId: sec.agentId, content: parsed.display });
               combined += `## ${AGENT_MAP[sec.agentId].name}\n\n${parsed.display}\n\n`;
               for (const a of parsed.artifacts) {
                 arts.push({ ...a, agentId: sec.agentId });
@@ -165,7 +170,9 @@ export function WarRoom({ sprintId }: Props) {
                 });
               }
             }
-            updateMessage(sprintId, placeholder.id, combined.trim());
+            // content keeps the combined transcript (export/copy fallback);
+            // boardSections drives the per-specialist card rendering.
+            setMessageBoard(sprintId, placeholder.id, combined.trim(), boardSecs);
             if (arts.length) addArtifacts(sprintId, arts);
             setStage(sprintId, "plan");
           } else {
@@ -226,6 +233,7 @@ export function WarRoom({ sprintId }: Props) {
       addMessage,
       removeMessage,
       setActiveAgent,
+      setMessageBoard,
       setStage,
       sprintId,
       updateMessage,
@@ -312,6 +320,14 @@ export function WarRoom({ sprintId }: Props) {
     URL.revokeObjectURL(url);
   }
 
+  function renameSprint() {
+    if (!sprint) return;
+    const next = window.prompt("Rename sprint", sprint.title);
+    if (next && next.trim() && next.trim() !== sprint.title) {
+      patchSprint(sprintId, { title: next.trim() });
+    }
+  }
+
   return (
     <div className="flex h-dvh flex-col bg-bg text-fg">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-3 md:px-5">
@@ -323,6 +339,15 @@ export function WarRoom({ sprintId }: Props) {
         <h1 className="min-w-0 flex-1 truncate font-display text-base font-medium tracking-tight">
           {sprint.title}
         </h1>
+        <button
+          type="button"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-bg-subtle hover:text-fg"
+          onClick={renameSprint}
+          aria-label="Rename sprint"
+          title="Rename sprint"
+        >
+          <Pencil className="size-3.5" />
+        </button>
         {/* Team sheet: available below lg, where the roster sidebar is hidden */}
         <button
           type="button"
@@ -374,6 +399,8 @@ export function WarRoom({ sprintId }: Props) {
                       <div className="ml-8 rounded-lg bg-bg-elevated px-4 py-3 shadow-[var(--shadow-border)]">
                         <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
                       </div>
+                    ) : liveId !== m.id && m.boardSections && m.boardSections.length > 0 ? (
+                      <BoardCards sections={m.boardSections} />
                     ) : (
                       <AgentBubble
                         agentId={m.agentId ?? "conductor"}
@@ -686,6 +713,29 @@ function AgentBubble({
       ) : (
         <Markdown text={content} className={streaming ? "opacity-90" : undefined} />
       )}
+    </div>
+  );
+}
+
+function BoardCards({ sections }: { sections: BoardSection[] }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {sections.map((sec, i) => {
+        const agent = AGENT_MAP[sec.agentId] ?? AGENT_MAP.conductor;
+        return (
+          <article
+            key={`${sec.agentId}-${i}`}
+            className="rounded-lg bg-bg-elevated p-4 shadow-[var(--shadow-border)]"
+          >
+            <p className="mb-2 flex items-baseline gap-2">
+              <span className="font-mono text-[11px] text-fg-subtle">{agent.initials}</span>
+              <span className="text-sm font-medium">{agent.name}</span>
+              <span className="text-[12px] text-fg-muted">{agent.role}</span>
+            </p>
+            <Markdown text={sec.content} />
+          </article>
+        );
+      })}
     </div>
   );
 }

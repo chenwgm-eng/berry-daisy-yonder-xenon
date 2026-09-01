@@ -20,9 +20,10 @@ npm run dev              # serves on http://localhost:8080
 Open the app, describe what you're building, and the Conductor kicks off the
 floor. Use slash commands (`/ceo`, `/eng`, `/qa`, …) or the roster to talk to
 a specific specialist — a bare `/ceo` just switches who you're talking to.
-"Run review board" gets office-hours + CEO + design + eng in one pass. Durable
-deliverables land in the Artifacts panel, where they can be copied or
-downloaded as Markdown.
+"Run review board" gets office-hours + CEO + design + eng in one pass and
+renders each specialist as its own card. Durable deliverables land in the
+Artifacts panel, where they can be copied or downloaded as Markdown. Sprints
+can be searched, pinned, renamed, and deleted from the home page.
 
 ## Scripts
 

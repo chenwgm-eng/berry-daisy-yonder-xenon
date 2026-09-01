@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, ArrowUpRight, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Pencil, Pin, Search, Trash2 } from "lucide-react";
 import { AGENTS, STAGES, STARTERS } from "@/lib/agents";
 import { useSprintStore } from "@/lib/store";
 import { timeAgo } from "@/lib/utils";
@@ -14,7 +14,10 @@ export function Landing() {
   const sprints = useSprintStore((s) => s.sprints);
   const createSprint = useSprintStore((s) => s.createSprint);
   const deleteSprint = useSprintStore((s) => s.deleteSprint);
+  const togglePin = useSprintStore((s) => s.togglePin);
+  const patchSprint = useSprintStore((s) => s.patchSprint);
   const [idea, setIdea] = useState("");
+  const [query, setQuery] = useState("");
 
   function start(text: string) {
     const trimmed = text.trim();
@@ -22,6 +25,18 @@ export function Landing() {
     const sprint = createSprint(trimmed);
     void navigate({ to: "/sprint/$sprintId", params: { sprintId: sprint.id } });
   }
+
+  const q = query.trim().toLowerCase();
+  // Pinned first, then most recently touched; search filters title + briefing.
+  const sorted = [...sprints].sort(
+    (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false) || b.updatedAt - a.updatedAt,
+  );
+  const visible = q
+    ? sorted.filter(
+        (sp) =>
+          sp.title.toLowerCase().includes(q) || sp.idea.toLowerCase().includes(q),
+      )
+    : sorted;
 
   return (
     <div className="min-h-dvh bg-bg text-fg">
@@ -137,41 +152,95 @@ export function Landing() {
 
         {hydrated && sprints.length > 0 ? (
           <section className="mt-16">
-            <h2 className="font-display text-2xl font-medium tracking-tight">Open sprints</h2>
-            <ul className="mt-5 divide-y divide-border rounded-lg shadow-[var(--shadow-border)]">
-              {sprints.slice(0, 8).map((sp) => (
-                <li key={sp.id} className="relative">
-                  <Link
-                    to="/sprint/$sprintId"
-                    params={{ sprintId: sp.id }}
-                    className="flex items-center justify-between gap-4 py-4 pr-14 pl-4 transition-colors hover:bg-bg-elevated"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{sp.title}</p>
-                      <p className="truncate text-[12px] text-fg-muted">
-                        {sp.stage} · {sp.messages.length} notes · {timeAgo(sp.updatedAt)}
-                      </p>
+            <div className="flex items-end justify-between gap-4">
+              <h2 className="font-display text-2xl font-medium tracking-tight">Open sprints</h2>
+            </div>
+            <div className="relative mt-4">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search sprints…"
+                aria-label="Search sprints"
+                className="h-11 w-full rounded-md bg-bg-elevated pl-9 pr-3 text-sm text-fg shadow-[var(--shadow-border)] outline-none placeholder:text-fg-subtle focus:ring-2 focus:ring-accent/40"
+              />
+            </div>
+            {visible.length === 0 ? (
+              <p className="mt-4 rounded-lg px-4 py-6 text-sm text-fg-muted shadow-[var(--shadow-border)]">
+                No sprints match your search.
+              </p>
+            ) : (
+              <ul className="mt-4 divide-y divide-border rounded-lg shadow-[var(--shadow-border)]">
+                {visible.slice(0, q ? 20 : 8).map((sp) => (
+                  <li key={sp.id} className="relative">
+                    <Link
+                      to="/sprint/$sprintId"
+                      params={{ sprintId: sp.id }}
+                      className="flex items-center justify-between gap-4 py-4 pr-28 pl-4 transition-colors hover:bg-bg-elevated"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">
+                          {sp.pinned ? <Pin className="mr-1.5 inline size-3.5 text-fg-muted" /> : null}
+                          {sp.title}
+                        </p>
+                        <p className="truncate text-[12px] text-fg-muted">
+                          {sp.stage} · {sp.messages.length} notes · {timeAgo(sp.updatedAt)}
+                        </p>
+                      </div>
+                      <ArrowRight className="size-4 shrink-0 text-fg-subtle" />
+                    </Link>
+                    <div className="absolute top-1/2 right-3 flex -translate-y-1/2 items-center gap-0.5">
+                      <button
+                        type="button"
+                        aria-label={sp.pinned ? "Unpin sprint" : "Pin sprint"}
+                        title={sp.pinned ? "Unpin sprint" : "Pin sprint"}
+                        className={`inline-flex size-9 items-center justify-center rounded-md transition-colors hover:bg-bg-subtle ${
+                          sp.pinned ? "text-fg" : "text-fg-subtle hover:text-fg"
+                        }`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          togglePin(sp.id);
+                        }}
+                      >
+                        <Pin className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Rename sprint ${sp.title}`}
+                        title="Rename sprint"
+                        className="inline-flex size-9 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-bg-subtle hover:text-fg"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const next = window.prompt("Rename sprint", sp.title);
+                          if (next && next.trim() && next.trim() !== sp.title) {
+                            patchSprint(sp.id, { title: next.trim() });
+                          }
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete sprint ${sp.title}`}
+                        title="Delete sprint"
+                        className="inline-flex size-9 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-bg-subtle hover:text-danger"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (window.confirm(`Delete "${sp.title}"? This cannot be undone.`)) {
+                            deleteSprint(sp.id);
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
                     </div>
-                    <ArrowRight className="size-4 shrink-0 text-fg-subtle" />
-                  </Link>
-                  <button
-                    type="button"
-                    aria-label={`Delete sprint ${sp.title}`}
-                    title="Delete sprint"
-                    className="absolute top-1/2 right-3 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-bg-subtle hover:text-danger"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (window.confirm(`Delete "${sp.title}"? This cannot be undone.`)) {
-                        deleteSprint(sp.id);
-                      }
-                    }}
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         ) : null}
 

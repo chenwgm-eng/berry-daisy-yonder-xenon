@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "GStack",
+      "hasCanvas": false,
+      "bodyTextLen": 1506,
+      "bodyTextHash": "3f72bbfb3436b3edb54849ed5c2a06289956d4cf74dfc5464ee4af2d076c0681",
+      "bodyTextPrefix": "gstack The team VIRTUAL ENGINEERING COMPANY That is not a copilo",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "GStack",
+      "hasCanvas": false,
+      "bodyTextLen": 1506,
+      "bodyTextHash": "3f72bbfb3436b3edb54849ed5c2a06289956d4cf74dfc5464ee4af2d076c0681",
+      "bodyTextPrefix": "gstack The team VIRTUAL ENGINEERING COMPANY That is not a copilo",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

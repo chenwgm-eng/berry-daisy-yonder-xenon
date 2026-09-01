@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { toast } from "sonner";
 import type { AgentId, StageId } from "./agents";
 import { AGENT_MAP, STAGES } from "./agents";
+import { t } from "./i18n";
 import type { Artifact, BoardSection, Message, Sprint } from "./types";
 import { uid } from "./utils";
 
@@ -98,7 +99,7 @@ const guardedStorage = {
       localStorage.setItem(name, value);
     } catch {
       if (typeof window !== "undefined") {
-        toast.error("Local storage is full — delete an old sprint to keep saving.");
+        toast.error(t("store.quotaFull"));
       }
     }
   },

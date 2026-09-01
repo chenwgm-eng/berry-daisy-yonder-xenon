@@ -2,14 +2,17 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, ArrowUpRight, Pencil, Pin, Search, Trash2 } from "lucide-react";
 import { AGENTS, STAGES, STARTERS } from "@/lib/agents";
+import { useT } from "@/lib/i18n";
 import { useSprintStore } from "@/lib/store";
 import { timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { LocaleToggle } from "@/components/locale-toggle";
 import { StackMark } from "@/components/mark";
 
 export function Landing() {
   const navigate = useNavigate();
+  const t = useT();
   const hydrated = useSprintStore((s) => s.hydrated);
   const sprints = useSprintStore((s) => s.sprints);
   const createSprint = useSprintStore((s) => s.createSprint);
@@ -46,11 +49,12 @@ export function Landing() {
           <span className="font-mono text-[13px] tracking-wide text-fg">gstack</span>
         </Link>
         <nav className="flex items-center gap-1">
+          <LocaleToggle />
           <Link
             to="/team"
             className="inline-flex h-11 items-center px-3 text-sm text-fg-muted transition-colors hover:text-fg"
           >
-            The team
+            {t("nav.team")}
           </Link>
         </nav>
       </header>
@@ -58,23 +62,21 @@ export function Landing() {
       <main className="mx-auto max-w-5xl px-5 pb-24 md:px-10">
         <section className="pt-10 md:pt-16">
           <p className="rise font-mono text-[11px] tracking-[0.18em] text-fg-muted uppercase">
-            Virtual engineering company
+            {t("landing.tagline")}
           </p>
           <h1 className="rise-2 mt-5 max-w-3xl font-display text-[2.6rem] font-medium leading-[1.05] tracking-[-0.04em] text-fg md:text-[4.4rem]">
-            That is not a copilot.
+            {t("landing.heroA")}
             <br />
-            That is a team.
+            {t("landing.heroB")}
           </h1>
           <p className="rise-3 mt-6 max-w-xl text-[15px] leading-relaxed text-fg-muted md:text-base">
-            GStack is Garry Tan's workflow — office hours, CEO review, architecture,
-            design, QA, security, ship — turned into agents you can summon. One builder.
-            A company's worth of judgment.
+            {t("landing.heroSub")}
           </p>
         </section>
 
         <section className="rise-4 mt-12 rounded-xl bg-bg-elevated p-3 shadow-[var(--shadow-border)] md:p-4">
           <label htmlFor="idea" className="sr-only">
-            What are you building
+            {t("landing.ideaLabel")}
           </label>
           <Textarea
             id="idea"
@@ -83,17 +85,17 @@ export function Landing() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start(idea);
             }}
-            placeholder="What are you building? Paste a messy idea, a plan, or a bug."
+            placeholder={t("landing.ideaPlaceholder")}
             className="min-h-32 bg-transparent shadow-none focus:ring-0 md:min-h-36 md:text-base"
           />
           <div className="mt-2 flex flex-col gap-3 px-1 pb-1 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[12px] text-fg-subtle">⌘ / Ctrl + Enter to open the floor</p>
+            <p className="text-[12px] text-fg-subtle">{t("landing.shortcutHint")}</p>
             <Button
               onClick={() => start(idea)}
               disabled={!idea.trim()}
               className="w-full sm:w-auto"
             >
-              Open a sprint
+              {t("landing.openSprint")}
               <ArrowRight className="size-4" />
             </Button>
           </div>
@@ -126,12 +128,12 @@ export function Landing() {
 
         <section className="mt-16">
           <div className="flex items-end justify-between gap-4">
-            <h2 className="font-display text-2xl font-medium tracking-tight">Specialists on the floor</h2>
+            <h2 className="font-display text-2xl font-medium tracking-tight">{t("landing.specialists")}</h2>
             <Link
               to="/team"
               className="inline-flex h-11 items-center gap-1 text-sm text-fg-muted hover:text-fg"
             >
-              Full roster
+              {t("landing.fullRoster")}
               <ArrowUpRight className="size-3.5" />
             </Link>
           </div>
@@ -153,21 +155,21 @@ export function Landing() {
         {hydrated && sprints.length > 0 ? (
           <section className="mt-16">
             <div className="flex items-end justify-between gap-4">
-              <h2 className="font-display text-2xl font-medium tracking-tight">Open sprints</h2>
+              <h2 className="font-display text-2xl font-medium tracking-tight">{t("landing.openSprints")}</h2>
             </div>
             <div className="relative mt-4">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search sprints…"
-                aria-label="Search sprints"
+                placeholder={t("landing.searchPlaceholder")}
+                aria-label={t("landing.searchAria")}
                 className="h-11 w-full rounded-md bg-bg-elevated pl-9 pr-3 text-sm text-fg shadow-[var(--shadow-border)] outline-none placeholder:text-fg-subtle focus:ring-2 focus:ring-accent/40"
               />
             </div>
             {visible.length === 0 ? (
               <p className="mt-4 rounded-lg px-4 py-6 text-sm text-fg-muted shadow-[var(--shadow-border)]">
-                No sprints match your search.
+                {t("landing.noMatch")}
               </p>
             ) : (
               <ul className="mt-4 divide-y divide-border rounded-lg shadow-[var(--shadow-border)]">
@@ -192,8 +194,8 @@ export function Landing() {
                     <div className="absolute top-1/2 right-3 flex -translate-y-1/2 items-center gap-0.5">
                       <button
                         type="button"
-                        aria-label={sp.pinned ? "Unpin sprint" : "Pin sprint"}
-                        title={sp.pinned ? "Unpin sprint" : "Pin sprint"}
+                        aria-label={sp.pinned ? t("landing.unpin") : t("landing.pin")}
+                        title={sp.pinned ? t("landing.unpin") : t("landing.pin")}
                         className={`inline-flex size-9 items-center justify-center rounded-md transition-colors hover:bg-bg-subtle ${
                           sp.pinned ? "text-fg" : "text-fg-subtle hover:text-fg"
                         }`}
@@ -207,13 +209,13 @@ export function Landing() {
                       </button>
                       <button
                         type="button"
-                        aria-label={`Rename sprint ${sp.title}`}
-                        title="Rename sprint"
+                        aria-label={t("landing.rename")}
+                        title={t("landing.rename")}
                         className="inline-flex size-9 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-bg-subtle hover:text-fg"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          const next = window.prompt("Rename sprint", sp.title);
+                          const next = window.prompt(t("landing.rename"), sp.title);
                           if (next && next.trim() && next.trim() !== sp.title) {
                             patchSprint(sp.id, { title: next.trim() });
                           }
@@ -223,13 +225,13 @@ export function Landing() {
                       </button>
                       <button
                         type="button"
-                        aria-label={`Delete sprint ${sp.title}`}
-                        title="Delete sprint"
+                        aria-label={t("landing.delete")}
+                        title={t("landing.delete")}
                         className="inline-flex size-9 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-bg-subtle hover:text-danger"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          if (window.confirm(`Delete "${sp.title}"? This cannot be undone.`)) {
+                          if (window.confirm(t("landing.deleteConfirm", { title: sp.title }))) {
                             deleteSprint(sp.id);
                           }
                         }}
@@ -245,7 +247,7 @@ export function Landing() {
         ) : null}
 
         <footer className="mt-20 border-t border-border pt-8 text-[12px] text-fg-subtle">
-          Inspired by the open-source gstack skill pack. Agents recommend. You decide.
+          {t("landing.footer")}
         </footer>
       </main>
     </div>

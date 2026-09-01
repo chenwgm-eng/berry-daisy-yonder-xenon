@@ -25,7 +25,7 @@ renders each specialist as its own card. Any reply can be retried or
 re-answered by a different specialist from its action bar. Durable
 deliverables land in the Artifacts panel, where they can be copied or
 downloaded as Markdown. Sprints can be searched, pinned, renamed, and deleted
-from the home page.
+from the home page. The UI speaks English and 中文 — use the header toggle.
 
 ## Scripts
 
@@ -79,6 +79,7 @@ Grok Build.
 
 - `src/routes/` — pages (`/`, `/team`, `/sprint/$sprintId`) and the `api.chat` handler
 - `src/components/` — landing, war room, markdown renderer, UI primitives
+- `src/lib/i18n.ts` — en/中文 UI strings, locale state, `t()` / `useT()`
 - `src/lib/agents.ts` — the ten specialists: roles, prompts, slash commands
 - `src/lib/parse-output.ts` — `:::artifact` / `:::handoff` / `:::agent:` protocol parsers (unit-tested)
 - `src/lib/store.ts` — sprint store (persisted, versioned, quota-guarded)

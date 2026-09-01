@@ -8,6 +8,7 @@ import {
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { initLocale } from "@/lib/i18n";
 import { useSprintStore } from "@/lib/store";
 import appCss from "../styles.css?url";
 
@@ -44,6 +45,7 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   useEffect(() => {
+    initLocale();
     const result = Promise.resolve(useSprintStore.persist.rehydrate());
     void result.then(() => {
       useSprintStore.getState().markHydrated();

@@ -53,10 +53,12 @@ export type CurrentUserState = {
  *
  * `authEnabled` is a module-level constant fixed at load, so the guarded hook
  * call keeps a stable hook order across every render of a given component.
+ * (The rules-of-hooks rule does not flag `authClient.useSession()` — it's a
+ * member-expression call, not a directly-named hook — so no disable comment
+ * is needed here.)
  */
 export function useCurrentUserState(): CurrentUserState {
   if (!authEnabled) return { user: DEV_USER, isPending: false };
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- authEnabled is constant for the app's lifetime
   const { data, isPending } = authClient.useSession();
   const user = data?.user;
   return {
